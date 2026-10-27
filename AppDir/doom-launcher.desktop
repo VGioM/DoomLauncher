@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DOOM Launcher
+Comment=Lancer DOOM avec UZDoom, avec ou sans mods
+Exec=doom-launcher
+Icon=doom-launcher
+Categories=Game;ActionGame;
+Terminal=false
+StartupWMClass=io.github.doomlauncher.DoomLauncher

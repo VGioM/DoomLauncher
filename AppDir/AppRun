@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+HERE="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$HERE}"
+if ! /usr/bin/python3 -c 'import gi; gi.require_version("Adw","1"); gi.require_version("Gtk","4.0")' 2>/dev/null; then
+    msg="DOOM Launcher a besoin de Python 3 avec GTK4 et libadwaita (python3-gobject)."
+    command -v kdialog >/dev/null && kdialog --error "$msg" || command -v zenity >/dev/null && zenity --error --text="$msg" || echo "$msg" >&2
+    exit 1
+fi
+exec /usr/bin/python3 -I "$HERE/usr/share/doom-launcher/launcher.py" "$@"
