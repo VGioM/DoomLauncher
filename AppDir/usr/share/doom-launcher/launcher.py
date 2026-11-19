@@ -387,12 +387,9 @@ class MainWindow(Adw.ApplicationWindow):
         view.set_content(self.stack)
         switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
         header.set_title_widget(switcher)
-        # Fenêtre étroite : les onglets passent en bas
-        switcher_bar = Adw.ViewSwitcherBar(stack=self.stack)
-        view.add_bottom_bar(switcher_bar)
+        # Fenêtre étroite : onglets compacts (icône au-dessus du texte), toujours en haut
         bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 500sp"))
-        bp.add_setter(switcher_bar, "reveal", True)
-        bp.add_setter(switcher, "visible", False)
+        bp.add_setter(switcher, "policy", Adw.ViewSwitcherPolicy.NARROW)
         self.add_breakpoint(bp)
 
         def page(name, title, icon, *groups):
