@@ -9,5 +9,7 @@ if [ ! -x "$TOOL" ]; then
     chmod +x "$TOOL"
 fi
 find AppDir -name __pycache__ -prune -exec rm -rf {} +
-ARCH=x86_64 "$TOOL" --no-appstream AppDir DOOM_Launcher-x86_64.AppImage
+ARCH=x86_64 "$TOOL" --no-appstream \
+    -u "gh-releases-zsync|VGioM|DoomLauncher|latest|DOOM_Launcher-x86_64.AppImage.zsync" \
+    AppDir DOOM_Launcher-x86_64.AppImage
 echo "OK : $(pwd)/DOOM_Launcher-x86_64.AppImage"

@@ -1,3 +1,4 @@
 .appimagetool
 *.AppImage
 __pycache__/
+*.zsync

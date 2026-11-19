@@ -24,8 +24,12 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "io.github.doomlauncher.DoomLauncher"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 GITHUB_API = "https://api.github.com/repos/UZDoom/UZDoom/releases/latest"
+APP_REPO = "VGioM/DoomLauncher"
+APP_API = f"https://api.github.com/repos/{APP_REPO}/releases/latest"
+APP_URL = f"https://github.com/{APP_REPO}"
+APP_ASSET = "DOOM_Launcher-x86_64.AppImage"
 
 CONFIG_DIR = Path(GLib.get_user_config_dir()) / "doom-launcher"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -236,6 +240,34 @@ def fetch_latest_release():
     raise RuntimeError("Aucun AppImage Linux trouvé dans la dernière version")
 
 
+def parse_version(v):
+    out = []
+    for part in v.lstrip("vV").split("."):
+        digits = "".join(c for c in part if c.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out)
+
+
+def fetch_launcher_release():
+    """Dernière version publiée de DOOM Launcher lui-même."""
+    req = urllib.request.Request(APP_API, headers={"Accept": "application/vnd.github+json",
+                                                   "User-Agent": "doom-launcher"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.load(r)
+    asset = next((a for a in data.get("assets", []) if a["name"] == APP_ASSET), None)
+    return {"version": data["tag_name"].lstrip("vV"),
+            "url": asset["browser_download_url"] if asset else None,
+            "page": data.get("html_url") or f"{APP_URL}/releases/latest"}
+
+
+def own_appimage():
+    """Chemin de l'AppImage en cours d'exécution, s'il est modifiable."""
+    p = os.environ.get("APPIMAGE")
+    if p and os.path.isfile(p) and os.access(os.path.dirname(p), os.W_OK):
+        return Path(p)
+    return None
+
+
 def download(url, dest, progress_cb):
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -319,7 +351,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         menu = Gio.Menu()
         menu.append("Paramètres", "win.settings")
-        menu.append("Vérifier les mises à jour d'UZDoom", "win.check")
+        menu.append("Vérifier les mises à jour", "win.check")
         menu.append("Ouvrir le dossier des mods", "win.open-mods")
         menu.append("Ouvrir le dossier des WAD", "win.open-wads")
         menu.append("Voir le journal du dernier lancement", "win.open-log")
@@ -327,7 +359,7 @@ class MainWindow(Adw.ApplicationWindow):
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu))
         view.add_top_bar(header)
 
-        for name, cb in (("settings", self.show_settings), ("check", lambda: self.check_update(True)),
+        for name, cb in (("settings", self.show_settings), ("check", lambda: (self.check_update(True), self.check_self_update(True))),
                          ("open-mods", lambda: self.open_dir(self.cfg["mods_dir"])),
                          ("open-wads", lambda: self.open_dir(self.cfg["wad_dir"])),
                          ("open-log", lambda: self.open_dir(str(LOG_FILE))),
@@ -335,6 +367,11 @@ class MainWindow(Adw.ApplicationWindow):
             act = Gio.SimpleAction.new(name, None)
             act.connect("activate", lambda _a, _p, f=cb: f())
             self.add_action(act)
+
+        self.app_banner = Adw.Banner()
+        self.app_banner.connect("button-clicked", lambda *_: self.install_self_update())
+        view.add_top_bar(self.app_banner)
+        self.app_latest = None
 
         self.banner = Adw.Banner()
         self.banner.connect("button-clicked", lambda *_: self.install_update())
@@ -393,6 +430,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh()
         self.set_focus(self.play_btn)
         self.check_update(False)
+        self.check_self_update(False)
 
     # ---------- helpers
     def toast(self, msg, timeout=3):
@@ -603,6 +641,85 @@ class MainWindow(Adw.ApplicationWindow):
         self.save()
         self.toast(f"UZDoom {latest['version']} installé ✔")
 
+    # ---------- DOOM Launcher : mise à jour de lui-même
+    def check_self_update(self, manual):
+        def work():
+            try:
+                latest = fetch_launcher_release()
+            except Exception as e:
+                GLib.idle_add(self.on_check_failed, str(e), manual)
+                return
+            GLib.idle_add(self.on_self_check_done, latest, manual)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_self_check_done(self, latest, manual):
+        self.app_latest = latest
+        if parse_version(latest["version"]) <= parse_version(APP_VERSION):
+            self.app_banner.set_revealed(False)
+            if manual:
+                self.toast(f"DOOM Launcher est à jour ({APP_VERSION})")
+            return
+        self.app_banner.set_title(
+            f"Nouvelle version de DOOM Launcher : {APP_VERSION} → {latest['version']}")
+        auto = own_appimage() is not None and latest["url"]
+        self.app_banner.set_button_label("Mettre à jour" if auto else "Télécharger")
+        self.app_banner.set_revealed(True)
+
+    def install_self_update(self):
+        latest, target = self.app_latest, own_appimage()
+        if latest is None:
+            return
+        if target is None or not latest["url"]:
+            # Pas lancé depuis un AppImage modifiable : on ouvre la page de la release
+            Gtk.UriLauncher.new(latest["page"]).launch(self, None, None, None)
+            return
+        if self.busy:
+            return
+        self.busy = True
+        self.app_banner.set_revealed(False)
+        self.progress.set_fraction(0)
+        self.progress.set_visible(True)
+        self.play_btn.set_sensitive(False)
+        self.toast(f"Téléchargement de DOOM Launcher {latest['version']}…")
+
+        def progress(frac):
+            GLib.idle_add(self.progress.set_fraction, frac)
+
+        def work():
+            try:
+                # Remplacer le fichier est sans risque : l'instance en cours garde l'ancien
+                download(latest["url"], target, progress)
+                GLib.idle_add(self.on_self_install_done, latest, target, None)
+            except Exception as e:
+                GLib.idle_add(self.on_self_install_done, latest, target, str(e))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_self_install_done(self, latest, target, err):
+        self.busy = False
+        self.progress.set_visible(False)
+        self.play_btn.set_sensitive(True)
+        if err:
+            self.toast(f"Échec de la mise à jour : {err}", 6)
+            self.app_banner.set_revealed(True)
+            return
+        dlg = Adw.AlertDialog(heading=f"DOOM Launcher {latest['version']} installé",
+                              body="Redémarrer maintenant pour utiliser la nouvelle version ?")
+        dlg.add_response("later", "Plus tard")
+        dlg.add_response("restart", "Redémarrer")
+        dlg.set_response_appearance("restart", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("restart")
+
+        def done(_d, response):
+            if response == "restart":
+                subprocess.Popen([str(target)], env=clean_env(), start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.get_application().quit()
+
+        dlg.connect("response", done)
+        dlg.present(self)
+
     # ---------- Lancement
     def build_command(self):
         ep = self.episodes.get(self.cfg.get("episode"))
@@ -726,11 +843,13 @@ class MainWindow(Adw.ApplicationWindow):
         dlg.present(self)
 
     def show_about(self):
-        Adw.AboutDialog(application_name="DOOM Launcher", version=APP_VERSION,
+        about = Adw.AboutDialog(application_name="DOOM Launcher", version=APP_VERSION,
                         application_icon="doom-launcher",
                         comments="Lanceur simple pour UZDoom : épisodes, mods et mises à jour.",
-                        website="https://github.com/UZDoom/UZDoom",
-                        license_type=Gtk.License.MIT_X11).present(self)
+                        website=APP_URL, issue_url=f"{APP_URL}/issues",
+                        license_type=Gtk.License.MIT_X11)
+        about.add_link("UZDoom", "https://github.com/UZDoom/UZDoom")
+        about.present(self)
 
 
 class App(Adw.Application):
