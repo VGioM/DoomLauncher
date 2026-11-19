@@ -331,7 +331,8 @@ class ModRow(Adw.ActionRow):
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="DOOM Launcher")
-        self.set_default_size(620, 820)
+        self.set_default_size(620, 680)
+        self.set_size_request(360, 400)
         self.cfg = load_config()
         self.latest = None
         self.busy = False
@@ -381,25 +382,58 @@ class MainWindow(Adw.ApplicationWindow):
         self.progress.add_css_class("osd")
         view.add_top_bar(self.progress)
 
-        # Contenu
-        scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
-        clamp = Adw.Clamp(maximum_size=640)
-        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24,
-                           margin_top=18, margin_bottom=18, margin_start=12, margin_end=12)
-        clamp.set_child(self.box)
-        scroller.set_child(clamp)
-        view.set_content(scroller)
+        # Contenu : un onglet par section
+        self.stack = Adw.ViewStack(vexpand=True)
+        view.set_content(self.stack)
+        switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
+        header.set_title_widget(switcher)
+        # Fenêtre étroite : les onglets passent en bas
+        switcher_bar = Adw.ViewSwitcherBar(stack=self.stack)
+        view.add_bottom_bar(switcher_bar)
+        bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 500sp"))
+        bp.add_setter(switcher_bar, "reveal", True)
+        bp.add_setter(switcher, "visible", False)
+        self.add_breakpoint(bp)
 
-        self.ep_group = Adw.PreferencesGroup(title="Épisode",
-                                             description="Le jeu ou l'extension à lancer")
+        def page(name, title, icon, *groups):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24,
+                          margin_top=18, margin_bottom=18, margin_start=12, margin_end=12)
+            for g in groups:
+                box.append(g)
+            clamp = Adw.Clamp(maximum_size=640, child=box)
+            scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, child=clamp)
+            return self.stack.add_titled_with_icon(scroller, name, title, icon)
+
+        def folder_button(tooltip, key):
+            b = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER,
+                           tooltip_text=tooltip)
+            b.add_css_class("flat")
+            b.connect("clicked", lambda *_: self.open_dir(self.cfg[key]))
+            return b
+
+        # Onglet Jeu
+        self.ep_group = Adw.PreferencesGroup(title="Jeux",
+                                             description="Le jeu de base à lancer")
+        self.ep_group.set_header_suffix(folder_button("Ouvrir le dossier des WAD", "wad_dir"))
+        self.ext_group = Adw.PreferencesGroup(
+            title="Extensions",
+            description="Épisodes supplémentaires, lancés avec le bon jeu de base")
+        page("game", "Jeu", "input-gaming-symbolic", self.ep_group, self.ext_group)
+
+        # Onglet Mods
         self.mod_group = Adw.PreferencesGroup(
             title="Mods", description="Activez ceux à charger (de haut en bas)")
+        mod_btns = Gtk.Box(spacing=6)
         none_btn = Gtk.Button(label="Aucun mod", valign=Gtk.Align.CENTER)
         none_btn.add_css_class("flat")
         none_btn.connect("clicked", lambda *_: self.disable_all_mods())
-        self.mod_group.set_header_suffix(none_btn)
+        mod_btns.append(none_btn)
+        mod_btns.append(folder_button("Ouvrir le dossier des mods", "mods_dir"))
+        self.mod_group.set_header_suffix(mod_btns)
+        self.mods_page = page("mods", "Mods", "application-x-addon-symbolic", self.mod_group)
 
-        opt_group = Adw.PreferencesGroup(title="Options")
+        # Onglet Options
+        opt_group = Adw.PreferencesGroup(title="Partie")
         self.skill_row = Adw.ComboRow(title="Difficulté",
                                       model=Gtk.StringList.new([s[0] for s in SKILLS]))
         self.skill_row.set_selected(min(int(self.cfg.get("skill") or 0), len(SKILLS) - 1))
@@ -409,9 +443,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.args_row.connect("changed", lambda *_: self.store_options())
         opt_group.add(self.skill_row)
         opt_group.add(self.args_row)
-
-        for w in (self.ep_group, self.mod_group, opt_group):
-            self.box.append(w)
+        page("options", "Options", "preferences-system-symbolic", opt_group)
 
         # Barre du bas
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
@@ -456,8 +488,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     # ---------- listes
     def refresh(self):
-        for r in self.episode_rows:
-            self.ep_group.remove(r)
+        for g, r in self.episode_rows:
+            g.remove(r)
         for r in self.mod_rows:
             self.mod_group.remove(r)
         self.episode_rows, self.mod_rows = [], []
@@ -470,7 +502,7 @@ class MainWindow(Adw.ApplicationWindow):
                                 subtitle=GLib.markup_escape_text(
                                     f"Placez doom.wad, doom2.wad… dans {self.cfg['wad_dir']}"))
             self.ep_group.add(row)
-            self.episode_rows.append(row)
+            self.episode_rows.append((self.ep_group, row))
 
         current = self.cfg.get("episode")
         if current not in self.episodes and episodes:
@@ -489,8 +521,10 @@ class MainWindow(Adw.ApplicationWindow):
             row.add_prefix(check)
             row.set_activatable_widget(check)
             row.set_sensitive(e["iwad"] is not None)
-            self.ep_group.add(row)
-            self.episode_rows.append(row)
+            group = self.ext_group if e["pwad"] else self.ep_group
+            group.add(row)
+            self.episode_rows.append((group, row))
+        self.ext_group.set_visible(any(e["pwad"] for e in episodes))
         self.cfg["episode"] = current
 
         # Ordre des mods : ordre mémorisé puis nouveaux fichiers
@@ -543,6 +577,8 @@ class MainWindow(Adw.ApplicationWindow):
     def update_summary(self):
         ep = self.episodes.get(self.cfg.get("episode")) if hasattr(self, "episodes") else None
         mods = self.enabled_mods()
+        self.mods_page.set_badge_number(len(mods))
+        self.mods_page.set_needs_attention(bool(mods))
         if not ep:
             self.summary.set_text("Choisissez un épisode")
         elif mods:
