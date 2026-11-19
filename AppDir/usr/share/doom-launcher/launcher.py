@@ -24,7 +24,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "io.github.doomlauncher.DoomLauncher"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 GITHUB_API = "https://api.github.com/repos/UZDoom/UZDoom/releases/latest"
 APP_REPO = "VGioM/DoomLauncher"
 APP_API = f"https://api.github.com/repos/{APP_REPO}/releases/latest"

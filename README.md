@@ -2,10 +2,17 @@
 
 Petit lanceur graphique (GTK4 / libadwaita) pour [UZDoom](https://github.com/UZDoom/UZDoom) sous Linux, pensé pour Bazzite.
 
+<p align="center">
+  <img src="docs/game.png" width="32%" alt="Onglet Jeu : choix du jeu et des extensions">
+  <img src="docs/mods.png" width="32%" alt="Onglet Mods : mods activables et ordre de chargement">
+  <img src="docs/options.png" width="32%" alt="Onglet Options : difficulté et arguments">
+</p>
+
 - **Télécharge / met à jour UZDoom** depuis les releases GitHub officielles
+- **Trois onglets** : *Jeu*, *Mods* et *Options* ; le bouton **JOUER** reste toujours visible
 - **Choix de l'épisode** : Ultimate DOOM, DOOM II, TNT, Plutonia, Freedoom, Heretic, Hexen…
   Les extensions (SIGIL, SIGIL II, Master Levels, ou tout autre PWAD avec des cartes) sont lancées automatiquement avec le bon IWAD
-- **Mods optionnels** (`.pk3`, `.wad`, `.zip`, `.deh`…) : interrupteur par mod, ordre de chargement réglable, bouton « Aucun mod »
+- **Mods optionnels** (`.pk3`, `.wad`, `.zip`, `.deh`…) : interrupteur par mod, ordre de chargement réglable, bouton « Aucun mod », nombre de mods actifs affiché sur l'onglet
 - Difficulté, arguments supplémentaires, mémorisation des choix, journal en cas de plantage
 - **Se met à jour tout seul** : un bandeau prévient quand une nouvelle version de DOOM Launcher est publiée
 
